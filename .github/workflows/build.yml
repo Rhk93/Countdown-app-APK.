@@ -22,6 +22,9 @@ jobs:
           unzip -o -q "$ZIP" -d progetto
           DIR=$(dirname "$(find progetto -name settings.gradle | head -n 1)")
           echo "DIR=$DIR" >> $GITHUB_ENV
+          # Usa anche il mirror Google di Maven Central (evita l'errore 429)
+          sed -i 's#mavenCentral()#maven { url "https://maven-central.storage-download.googleapis.com/maven2/" }; mavenCentral()#g' "$DIR/settings.gradle"
+          cat "$DIR/settings.gradle"
 
       - uses: actions/setup-java@v4
         with:
@@ -33,7 +36,14 @@ jobs:
           gradle-version: "8.9"
 
       - name: Compila
-        run: cd "$DIR" && gradle assembleRelease --no-daemon
+        run: |
+          cd "$DIR"
+          for i in 1 2 3; do
+            gradle assembleRelease --no-daemon -Dorg.gradle.internal.repository.max.tentatives=8 -Dorg.gradle.internal.repository.initial.backoff=3000 && exit 0
+            echo "Tentativo $i fallito, riprovo tra 30 secondi..."
+            sleep 30
+          done
+          exit 1
 
       - name: Prepara APK
         run: cp "$DIR/app/build/outputs/apk/release/app-release.apk" Countdown.apk
